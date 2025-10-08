@@ -1,16 +1,18 @@
 #!/usr/bin/env python3
 """
 Prediction Module
-Make predictions on new contracts
+Make predictions on new contracts (Multi-Chain Support)
 """
 
 import json
 import sys
 import argparse
+import subprocess
 from typing import Dict, Optional, List, Tuple
 import joblib
 import pandas as pd
 import numpy as np
+import yaml
 
 from feature_extraction import OpcodeFeatureExtractor
 from train import HoneypotMLTrainer
@@ -49,7 +51,7 @@ class HoneypotPredictor:
                 - confidence: float (0-1)
                 - risk_score: int (0-100)
                 - risk_level: str (SAFE, LOW, MEDIUM, HIGH, CRITICAL)
-                - top_risk_features: list of (feature, value) tuples
+                - top_risk_features: list of (feature, value, description) tuples
         """
         # Extract features
         features = self.extractor.extract_all_features(bytecode)
@@ -138,31 +140,57 @@ class HoneypotPredictor:
         # Return top 10
         return risk_features[:10]
     
-    def predict_from_address(self, address: str, rpc_url: str = "https://rpc.pulsechain.com") -> Dict:
-        """Fetch bytecode and predict"""
-        import subprocess
+    def predict_from_address(self, address: str, chain: str = 'pulsechain') -> Dict:
+        """
+        Fetch bytecode from blockchain and predict
         
-        print(f"Fetching bytecode for {address}...", file=sys.stderr)
+        Args:
+            address: Contract address
+            chain: 'ethereum' or 'pulsechain' (where to fetch from)
+        
+        Returns:
+            Prediction dict with additional 'fetched_from_chain' key
+        """
+        print(f"Fetching bytecode for {address} from {chain}...", file=sys.stderr)
+        
+        # Load chain config
+        try:
+            with open('config.yaml', 'r') as f:
+                config = yaml.safe_load(f)
+        except FileNotFoundError:
+            return {'error': 'config.yaml not found'}
+        
+        if chain not in config['chains']:
+            return {'error': f'Unknown chain: {chain}. Available: {list(config["chains"].keys())}'}
+        
+        rpc_url = config['chains'][chain]['rpc_urls'][0]
         
         try:
             result = subprocess.run(
                 ['cast', 'code', address, '--rpc-url', rpc_url],
                 capture_output=True,
                 text=True,
-                timeout=15
+                timeout=20
             )
             
             if result.returncode == 0:
                 bytecode = result.stdout.strip()
                 if bytecode and bytecode != '0x':
-                    return self.predict(bytecode)
+                    # Predict (chain doesn't matter - bytecode is bytecode!)
+                    prediction = self.predict(bytecode)
+                    prediction['fetched_from_chain'] = chain
+                    prediction['address'] = address
+                    prediction['bytecode_length'] = len(bytecode)
+                    return prediction
                 else:
-                    return {'error': 'Not a contract or empty bytecode'}
+                    return {'error': f'Not a contract or empty bytecode on {chain}'}
             else:
                 return {'error': f'Failed to fetch bytecode: {result.stderr}'}
         
         except subprocess.TimeoutExpired:
-            return {'error': 'Timeout fetching bytecode'}
+            return {'error': f'Timeout fetching bytecode from {chain} RPC'}
+        except FileNotFoundError:
+            return {'error': 'cast command not found. Install Foundry: https://getfoundry.sh'}
         except Exception as e:
             return {'error': f'Error: {str(e)}'}
 
@@ -171,7 +199,10 @@ def format_output(result: Dict, format: str = 'human') -> str:
     """Format prediction result for output"""
     
     if 'error' in result:
-        return json.dumps({'error': result['error']})
+        if format == 'json' or format == 'json-compact':
+            return json.dumps({'error': result['error']})
+        else:
+            return f"Error: {result['error']}"
     
     if format == 'json':
         return json.dumps(result, indent=2)
@@ -190,13 +221,24 @@ def format_output(result: Dict, format: str = 'human') -> str:
         output.append(f"ML_RISK_LEVEL={result['risk_level']}")
         output.append(f"ML_IS_HONEYPOT={int(result['is_honeypot'])}")
         output.append(f"ML_CONFIDENCE={result['confidence']:.4f}")
+        if 'fetched_from_chain' in result:
+            output.append(f"ML_CHAIN={result['fetched_from_chain']}")
         return '\n'.join(output)
     
     else:  # human-readable
         lines = []
-        lines.append("\n" + "="*60)
-        lines.append("ML PREDICTION RESULTS")
-        lines.append("="*60)
+        lines.append("\n" + "="*62)
+        lines.append("  ML HONEYPOT DETECTION RESULTS")
+        lines.append("="*62)
+        
+        # Address and chain info
+        if 'address' in result:
+            lines.append(f"\nContract: {result['address']}")
+        if 'fetched_from_chain' in result:
+            chain_name = result['fetched_from_chain'].upper()
+            lines.append(f"Chain: {chain_name}")
+        if 'bytecode_length' in result:
+            lines.append(f"Bytecode Size: {result['bytecode_length']} bytes")
         
         # Risk assessment
         risk_level = result['risk_level']
@@ -220,45 +262,56 @@ def format_output(result: Dict, format: str = 'human') -> str:
         
         nc = '\033[0m'  # No color
         
-        lines.append(f"\n{color}Risk Level: {symbol} {risk_level}{nc}")
+        lines.append("\n" + "-"*62)
+        lines.append(f"{color}Risk Level: {symbol} {risk_level}{nc}")
         lines.append(f"{color}Risk Score: {risk_score}/100{nc}")
+        lines.append("-"*62)
+        
         lines.append(f"\nConfidence: {result['confidence']:.1%}")
         lines.append(f"Honeypot Probability: {result['honeypot_probability']:.1%}")
         lines.append(f"Safe Probability: {result['safe_probability']:.1%}")
         
         # Model performance
         if result['model_metrics']['test_accuracy'] != 'N/A':
-            lines.append(f"\nModel Test Accuracy: {result['model_metrics']['test_accuracy']:.1%}")
-            lines.append(f"Model ROC AUC: {result['model_metrics']['roc_auc']:.3f}")
+            lines.append(f"\nModel Performance:")
+            lines.append(f"  Test Accuracy: {result['model_metrics']['test_accuracy']:.1%}")
+            lines.append(f"  ROC AUC: {result['model_metrics']['roc_auc']:.3f}")
         
         # Risk features
         if result['top_risk_features']:
-            lines.append("\n" + "-"*60)
-            lines.append("TOP RISK INDICATORS:")
-            lines.append("-"*60)
-            for feature, value, description in result['top_risk_features']:
-                lines.append(f"  • {description}")
-                lines.append(f"    ({feature} = {value})")
+            lines.append("\n" + "="*62)
+            lines.append("TOP RISK INDICATORS")
+            lines.append("="*62)
+            for i, (feature, value, description) in enumerate(result['top_risk_features'], 1):
+                lines.append(f"\n{i}. {description}")
+                lines.append(f"   ({feature} = {value})")
         else:
             lines.append("\n✓ No significant risk indicators detected")
         
-        lines.append("\n" + "="*60)
+        lines.append("\n" + "="*62)
         
         # Verdict
         if result['is_honeypot']:
             lines.append(f"{color}VERDICT: LIKELY HONEYPOT - HIGH RISK{nc}")
-            lines.append("The ML model predicts this contract is likely a honeypot.")
-            lines.append("DO NOT interact with this contract.")
+            lines.append("="*62)
+            lines.append("\n⚠️  The ML model predicts this contract is likely a honeypot.")
+            lines.append("⚠️  DO NOT interact with this contract.")
+            lines.append("⚠️  DO NOT buy this token.")
         elif risk_score >= 40:
             lines.append(f"{color}VERDICT: SUSPICIOUS - CAUTION ADVISED{nc}")
-            lines.append("The model detected concerning patterns.")
-            lines.append("Verify source code and proceed with extreme caution.")
+            lines.append("="*62)
+            lines.append("\n⚠️  The model detected concerning patterns.")
+            lines.append("⚠️  Verify source code before interacting.")
+            lines.append("⚠️  Test with tiny amounts if you proceed.")
         else:
             lines.append(f"{color}VERDICT: APPEARS SAFE{nc}")
-            lines.append("The model did not detect significant honeypot patterns.")
-            lines.append("However, always verify source code and test with small amounts.")
+            lines.append("="*62)
+            lines.append("\n✓ The model did not detect significant honeypot patterns.")
+            lines.append("ℹ️  However, always verify source code.")
+            lines.append("ℹ️  Test with small amounts first.")
+            lines.append("ℹ️  This is not financial advice - DYOR!")
         
-        lines.append("="*60 + "\n")
+        lines.append("\n" + "="*62 + "\n")
         
         return '\n'.join(lines)
 
@@ -269,35 +322,45 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Predict from contract address
+  # Analyze PulseChain contract (default)
   %(prog)s 0x2b591e99afE9f32eAA6214f7B7629768c40Eeb39
   
-  # Predict from bytecode
+  # Analyze Ethereum contract
+  %(prog)s 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2 --chain ethereum
+  
+  # Analyze bytecode directly (chain-agnostic)
   %(prog)s --bytecode 0x6080604052...
   
   # JSON output for automation
   %(prog)s 0x... --format json
   
   # Bash script integration
-  %(prog)s 0x... --format bash
   eval $(%(prog)s 0x... --format bash)
   echo "Risk score: $ML_RISK_SCORE"
+  if [ "$ML_IS_HONEYPOT" -eq 1 ]; then
+      echo "HONEYPOT DETECTED!"
+  fi
   
-  # Just get risk score
+  # Just get risk score (0-100)
   %(prog)s 0x... --format score-only
+  
+  # Quiet mode (no stderr)
+  %(prog)s 0x... --quiet
         """
     )
     
     parser.add_argument('address', nargs='?', help='Contract address to analyze')
-    parser.add_argument('--bytecode', help='Analyze bytecode directly')
+    parser.add_argument('--bytecode', help='Analyze bytecode directly (no RPC call)')
+    parser.add_argument('--chain', choices=['ethereum', 'pulsechain'],
+                       default='pulsechain',
+                       help='Blockchain to fetch contract from (default: pulsechain)')
     parser.add_argument('--model', default='./data/models/honeypot_detector.pkl',
-                       help='Path to model file')
-    parser.add_argument('--rpc', default='https://rpc.pulsechain.com',
-                       help='RPC URL')
+                       help='Path to model file (default: ./data/models/honeypot_detector.pkl)')
     parser.add_argument('--format', choices=['human', 'json', 'json-compact', 'bash', 'score-only'],
-                       default='human', help='Output format')
+                       default='human', 
+                       help='Output format (default: human)')
     parser.add_argument('--quiet', action='store_true',
-                       help='Suppress stderr output')
+                       help='Suppress stderr output (progress messages)')
     
     args = parser.parse_args()
     
@@ -318,28 +381,35 @@ Examples:
         if args.bytecode:
             result = predictor.predict(args.bytecode)
         else:
-            result = predictor.predict_from_address(args.address, args.rpc)
+            result = predictor.predict_from_address(args.address, args.chain)
         
         # Output result
         output = format_output(result, args.format)
         print(output)
         
-        # Exit code based on risk
+        # Exit code based on result
         if 'error' in result:
-            sys.exit(2)
+            sys.exit(2)  # Error
         elif result.get('risk_score', 0) >= 60:
             sys.exit(1)  # High risk
         else:
             sys.exit(0)  # Safe or low risk
     
-    except FileNotFoundError:
-        print(f"Error: Model file not found: {args.model}", file=sys.stderr)
-        print("Train a model first: python src/train.py", file=sys.stderr)
+    except FileNotFoundError as e:
+        if 'honeypot_detector.pkl' in str(e):
+            print(f"Error: Model file not found: {args.model}", file=sys.stderr)
+            print("Train a model first: python3 src/train.py", file=sys.stderr)
+        else:
+            print(f"Error: {e}", file=sys.stderr)
         sys.exit(2)
+    except KeyboardInterrupt:
+        print("\n\nInterrupted by user", file=sys.stderr)
+        sys.exit(130)
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
-        import traceback
-        traceback.print_exc()
+        if not args.quiet:
+            import traceback
+            traceback.print_exc()
         sys.exit(2)
 
 
