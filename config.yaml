@@ -1,0 +1,68 @@
+# Honeypot ML Configuration
+
+data:
+  rpc_url: "https://rpc.pulsechain.com"
+  cache_dir: "./data/cache"
+  raw_data_path: "./data/raw/contracts.json"
+  processed_data_path: "./data/processed/features.csv"
+  
+collection:
+  timeout: 15
+  batch_size: 100
+  max_retries: 3
+
+features:
+  # Opcode categories
+  dangerous_opcodes:
+    DELEGATECALL: "F4"
+    SELFDESTRUCT: "FF"
+    CALLCODE: "F2"
+    CREATE2: "F5"
+    STATICCALL: "FA"
+  
+  # Function selectors (critical)
+  critical_selectors:
+    isBlacklisted: "FE575A87"
+    isBlackListed: "0ECB93C0"
+    blacklist: "59BF1ABE"
+    addBlackList: "F9F92BE4"
+    removeBlackList: "E4997DC5"
+    transfer: "A9059CBB"
+    transferFrom: "23B872DD"
+    approve: "095EA7B3"
+    mint: "40C10F19"
+    burn: "42966C68"
+    setFee: "69FE0E2D"
+    pause: "8456CB59"
+    unpause: "3F4BA83A"
+  
+  # N-gram settings
+  ngram_min: 2
+  ngram_max: 4
+  top_ngrams: 50
+
+model:
+  algorithm: "xgboost"  # xgboost, lightgbm, random_forest
+  test_size: 0.2
+  cv_folds: 5
+  random_state: 42
+  
+  # Hyperparameters
+  xgboost:
+    n_estimators: 300
+    max_depth: 6
+    learning_rate: 0.05
+    subsample: 0.8
+    colsample_bytree: 0.8
+    scale_pos_weight: 3  # Handle imbalanced data
+  
+  random_forest:
+    n_estimators: 200
+    max_depth: 10
+    min_samples_split: 5
+    class_weight: "balanced"
+
+output:
+  model_path: "./data/models/honeypot_detector.pkl"
+  metrics_path: "./data/models/metrics.json"
+  feature_importance_path: "./data/models/feature_importance.csv"
