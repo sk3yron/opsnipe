@@ -1,15 +1,41 @@
-# Honeypot ML Configuration
+chains:
+  ethereum:
+    name: "Ethereum Mainnet"
+    chain_id: 1
+    rpc_urls:
+      - "https://eth.llamarpc.com"
+      - "https://rpc.ankr.com/eth"
+      - "https://ethereum.publicnode.com"
+    explorer: "https://etherscan.io"
+  
+  pulsechain:
+    name: "PulseChain"
+    chain_id: 369
+    rpc_urls:
+      - "https://rpc.pulsechain.com"
+      - "https://pulsechain.publicnode.com"
+    explorer: "https://scan.pulsechain.com"
 
 data:
-  rpc_url: "https://rpc.pulsechain.com"
   cache_dir: "./data/cache"
-  raw_data_path: "./data/raw/contracts.json"
-  processed_data_path: "./data/processed/features.csv"
   
+  # Chain-specific raw data (for collection)
+  raw_data_ethereum: "./data/raw/contracts_ethereum.json"
+  raw_data_pulsechain: "./data/raw/contracts_pulsechain.json"
+  
+  # MERGED dataset (chain-agnostic)
+  raw_data_merged: "./data/raw/contracts_merged.json"
+  
+  # Processed features (single file for both chains)
+  processed_data_path: "./data/processed/features.csv"
+
 collection:
-  timeout: 15
+  timeout: 20
   batch_size: 100
   max_retries: 3
+  
+  # Collect from both chains by default
+  collect_from_both_chains: true
 
 features:
   # Opcode categories
