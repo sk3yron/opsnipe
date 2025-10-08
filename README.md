@@ -16,7 +16,7 @@ Machine learning-based smart contract honeypot detection for PulseChain and Ethe
 
 ```bash
 # Clone and setup
-git clone <repo-url>
+git clone https://github.com/sk3yron/opsnipe
 cd honeypot-ml
 chmod +x setup.sh
 ./setup.sh
@@ -116,24 +116,6 @@ cat data/raw/contracts.json | jq '.metadata'
 # Remove mislabeled samples
 # Check feature importance
 cat data/models/feature_importance.csv
-```
-
-## Project Structure
-
-```
-honeypot-ml/
-├── src/
-│   ├── data_collection.py    # Collect contract data
-│   ├── feature_extraction.py # Extract bytecode features
-│   ├── train.py             # Train ML model
-│   ├── predict.py           # Make predictions
-│   └── evaluate.py          # Test model
-├── data/
-│   ├── raw/                 # Training data
-│   ├── models/              # Trained models
-│   └── cache/
-├── config.yaml              # Settings
-└── requirements.txt
 ```
 
 ## Detected Patterns
