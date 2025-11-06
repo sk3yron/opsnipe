@@ -6,7 +6,9 @@ chains:
       - "https://eth.llamarpc.com"
       - "https://rpc.ankr.com/eth"
       - "https://ethereum.publicnode.com"
+      - "https://eth.rpc.blxrbdn.com"
     explorer: "https://etherscan.io"
+    explorer_api: "https://api.etherscan.io/api"
   
   pulsechain:
     name: "PulseChain"
@@ -14,31 +16,104 @@ chains:
     rpc_urls:
       - "https://rpc.pulsechain.com"
       - "https://pulsechain.publicnode.com"
+      - "https://rpc-pulsechain.g4mm4.io"
     explorer: "https://scan.pulsechain.com"
+    explorer_api: "https://api.scan.pulsechain.com/api"
+  
+  optimism:
+    name: "Optimism"
+    chain_id: 10
+    rpc_urls:
+      - "https://mainnet.optimism.io"
+      - "https://optimism.llamarpc.com"
+      - "https://rpc.ankr.com/optimism"
+      - "https://optimism.publicnode.com"
+    explorer: "https://optimistic.etherscan.io"
+    explorer_api: "https://api-optimistic.etherscan.io/api"
+  
+  arbitrum:
+    name: "Arbitrum One"
+    chain_id: 42161
+    rpc_urls:
+      - "https://arb1.arbitrum.io/rpc"
+      - "https://arbitrum.llamarpc.com"
+      - "https://rpc.ankr.com/arbitrum"
+      - "https://arbitrum-one.publicnode.com"
+    explorer: "https://arbiscan.io"
+    explorer_api: "https://api.arbiscan.io/api"
+  
+  polygon:
+    name: "Polygon"
+    chain_id: 137
+    rpc_urls:
+      - "https://polygon-rpc.com"
+      - "https://polygon.llamarpc.com"
+      - "https://rpc.ankr.com/polygon"
+      - "https://polygon-bor.publicnode.com"
+    explorer: "https://polygonscan.com"
+    explorer_api: "https://api.polygonscan.com/api"
+  
+  base:
+    name: "Base"
+    chain_id: 8453
+    rpc_urls:
+      - "https://mainnet.base.org"
+      - "https://base.llamarpc.com"
+      - "https://rpc.ankr.com/base"
+      - "https://base.publicnode.com"
+    explorer: "https://basescan.org"
+    explorer_api: "https://api.basescan.org/api"
+  
+  bsc:
+    name: "Binance Smart Chain"
+    chain_id: 56
+    rpc_urls:
+      - "https://bsc-dataseed.binance.org"
+      - "https://bsc.llamarpc.com"
+      - "https://rpc.ankr.com/bsc"
+      - "https://bsc.publicnode.com"
+    explorer: "https://bscscan.com"
+    explorer_api: "https://api.bscscan.com/api"
 
 data:
   cache_dir: "./data/cache"
   
-  # Chain-specific raw data (for collection)
+  # Chain-specific raw data
   raw_data_ethereum: "./data/raw/contracts_ethereum.json"
   raw_data_pulsechain: "./data/raw/contracts_pulsechain.json"
+  raw_data_optimism: "./data/raw/contracts_optimism.json"
+  raw_data_arbitrum: "./data/raw/contracts_arbitrum.json"
+  raw_data_polygon: "./data/raw/contracts_polygon.json"
+  raw_data_base: "./data/raw/contracts_base.json"
+  raw_data_bsc: "./data/raw/contracts_bsc.json"
   
-  # MERGED dataset (chain-agnostic)
-  raw_data_merged: "./data/raw/contracts_merged.json"
+  # MERGED dataset (ALL chains)
+  raw_data_merged: "./data/raw/contracts_merged_all_chains.json"
   
-  # Processed features (single file for both chains)
+  # Processed features
   processed_data_path: "./data/processed/features.csv"
 
 collection:
   timeout: 20
   batch_size: 100
   max_retries: 3
+  parallel_fetch: true  # NEW: Enable parallel fetching
+  max_workers: 5        # NEW: Number of concurrent RPC calls
   
-  # Collect from both chains by default
-  collect_from_both_chains: true
+  # Default chain for single-chain operations
+  default_chain: 'pulsechain'
+  
+  # Chains to include in multi-chain collection
+  active_chains:
+    - ethereum
+    - pulsechain
+    - optimism
+    - arbitrum
+    - polygon
+    - base
+    - bsc
 
 features:
-  # Opcode categories
   dangerous_opcodes:
     DELEGATECALL: "F4"
     SELFDESTRUCT: "FF"
@@ -46,7 +121,6 @@ features:
     CREATE2: "F5"
     STATICCALL: "FA"
   
-  # Function selectors (critical)
   critical_selectors:
     isBlacklisted: "FE575A87"
     isBlackListed: "0ECB93C0"
@@ -62,25 +136,23 @@ features:
     pause: "8456CB59"
     unpause: "3F4BA83A"
   
-  # N-gram settings
   ngram_min: 2
   ngram_max: 4
   top_ngrams: 50
 
 model:
-  algorithm: "xgboost"  # xgboost, lightgbm, random_forest
+  algorithm: "xgboost"
   test_size: 0.2
   cv_folds: 5
   random_state: 42
   
-  # Hyperparameters
   xgboost:
     n_estimators: 300
     max_depth: 6
     learning_rate: 0.05
     subsample: 0.8
     colsample_bytree: 0.8
-    scale_pos_weight: 3  # Handle imbalanced data
+    scale_pos_weight: 3
   
   random_forest:
     n_estimators: 200
